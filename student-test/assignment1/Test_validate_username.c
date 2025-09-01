@@ -14,9 +14,19 @@
 */
 void test_validate_my_username()
 {
-    /**
-     * TODO: Replace the line below with your code here as described above to verify your /conf/username.txt 
-     * config file and my_username() functions are setup properly
-     */
-    TEST_ASSERT_TRUE_MESSAGE(false,"AESD students, please fix me!");
+	// Implementation for testing validation of username.
+	// First we will store our "expected" username, then we will store the conf username
+	// Then we will compare our stored locals and see if they match
+	// Bonus ToDo: would be to add sanity checking for not nulls on the locals before compare
+
+	// Step 1) Get our hard coded username from autotest-validate.c [my_username()]
+	const char *expected_username = my_username();
+	// Step 2) Grab our username read from the /conf/username.txt using malloc_username_from_conf_file() helper
+	char *from_conf_username = malloc_username_from_conf_file();
+	
+	// Step 3) Test if our usernames match!
+	TEST_ASSERT_EQUAL_STRING_MESSAGE(expected_username, from_conf_username, "Usernames DO NOT Match!!");
+
+	// Clean up our malloc'd string so we free that memory
+	free(from_conf_username);
 }
