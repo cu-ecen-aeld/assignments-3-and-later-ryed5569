@@ -1,4 +1,15 @@
 #include "systemcalls.h"
+// Includes needed for implementation of ToDos
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>      // system()
+#include <sys/types.h>
+#include <sys/wait.h>    // WIFEXITED, WEXITSTATUS, waitpid()
+#include <unistd.h>      // fork(), execv(), _exit(), dup2()
+#include <fcntl.h>       // open()
+#include <errno.h>
+#include <string.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -10,14 +21,12 @@
 bool do_system(const char *cmd)
 {
 
-/*
- * TODO  add your code here
- *  Call the system() function with the command set in the cmd
- *   and return a boolean true if the system() call completed with success
- *   or false() if it returned a failure
-*/
+    if (cmd == NULL) return false;
 
-    return true;
+    int status = system(cmd);              // runs via /bin/sh -c ...
+    if (status == -1) return false;        // system() failed
+
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 /**
@@ -44,24 +53,31 @@ bool do_exec(int count, ...)
     {
         command[i] = va_arg(args, char *);
     }
-    command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
+    
+    // Build argv[] was already done above:
+    // for (int i = 0; i < count; i++) command[i] = va_arg(args, char *);
 
-/*
- * TODO:
- *   Execute a system command by calling fork, execv(),
- *   and wait instead of system (see LSP page 161).
- *   Use the command[0] as the full path to the command to execute
- *   (first argument to execv), and use the remaining arguments
- *   as second argument to the execv() command.
- *
-*/
+    command[count] = NULL;                  // execv requires NULL-terminated argv
+
+    pid_t pid = fork();
+    if (pid < 0) {                          // fork failed
+        va_end(args);
+        return false;
+    }
+
+    if (pid == 0) {                         // child
+        execv(command[0], command);         // replaces child on success
+        _exit(1);                           // only reached if execv fails
+    }
+
+    int status = 0;                         // parent
+    if (waitpid(pid, &status, 0) < 0) {
+        va_end(args);
+        return false;
+    }
 
     va_end(args);
-
-    return true;
+    return WIFEXITED(status) && (WEXITSTATUS(status) == 0);
 }
 
 /**
@@ -73,27 +89,40 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
 {
     va_list args;
     va_start(args, count);
-    char * command[count+1];
-    int i;
-    for(i=0; i<count; i++)
-    {
+
+    char *command[count + 1];
+    for (int i = 0; i < count; i++) {
         command[i] = va_arg(args, char *);
+        if (!command[i]) { va_end(args); return false; }
     }
-    command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
+    command[count] = NULL;  // required by execv
 
+    if (!outputfile) { va_end(args); return false; }
 
-/*
- * TODO
- *   Call execv, but first using https://stackoverflow.com/a/13784315/1446624 as a refernce,
- *   redirect standard out to a file specified by outputfile.
- *   The rest of the behaviour is same as do_exec()
- *
-*/
+    pid_t pid = fork();
+    if (pid < 0) {                     // fork failed
+        va_end(args);
+        return false;
+    }
+
+    if (pid == 0) {                    // child
+        int fd = open(outputfile, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+        if (fd < 0) _exit(1);
+
+        if (dup2(fd, STDOUT_FILENO) < 0) _exit(1);
+        if (dup2(fd, STDERR_FILENO) < 0) _exit(1);
+        close(fd);
+
+        execv(command[0], command);    // replace child; only returns on error
+        _exit(1);
+    }
+
+    int status = 0;                    // parent
+    if (waitpid(pid, &status, 0) < 0) {
+        va_end(args);
+        return false;
+    }
 
     va_end(args);
-
-    return true;
+    return WIFEXITED(status) && (WEXITSTATUS(status) == 0);
 }
