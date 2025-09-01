@@ -48,26 +48,28 @@ then
 		exit 1
 	fi
 fi
-#echo "Removing the old writer utility and compiling as a native application"
-#make clean
-#make
 
-for i in $( seq 1 $NUMFILES)
-do
-	./writer.sh "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+echo "Removing the old writer utility and compiling as a native application"
+make clean
+make
+
+WRITER="$SCRIPT_DIR/writer"
+
+for i in $(seq 1 "$NUMFILES"); do
+    "$WRITER" "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 
-OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
+OUTPUTSTRING=$("$SCRIPT_DIR/finder.sh" "$WRITEDIR" "$WRITESTR")
 
-# remove temporary directories
-rm -rf /tmp/aeld-data
+# remove temporary directories created for the test
+rm -rf "$WRITEDIR"
 
 set +e
-echo ${OUTPUTSTRING} | grep "${MATCHSTR}"
+echo "$OUTPUTSTRING" | grep "${MATCHSTR}"
 if [ $? -eq 0 ]; then
-	echo "success"
-	exit 0
+    echo "success"
+    exit 0
 else
-	echo "failed: expected  ${MATCHSTR} in ${OUTPUTSTRING} but instead found"
-	exit 1
+    echo "failed: expected  ${MATCHSTR} in ${OUTPUTSTRING} but instead found"
+    exit 1
 fi
