@@ -35,6 +35,24 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # TODO: Add your kernel build steps here
+    # we'll use the O var to point to our output directory for kbuild
+    # Using mrproper to "deep clean" (Removes all gen'd files + config +various backup files)
+    make O="${OUTDIR}" ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper
+    # Run with defconfig to configure our "virt" arm dev board we'll sim in QEMU
+    make O="${OUTDIR}" ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+    # now run the build using multiple jobs to try and speed things up -j"${nproc}" to match cores
+    make -j4 O="${OUTDIR}" ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+
+    # check if we have our kernal image, if not exit with a 1 status (we can't move on without an image)
+    if [ ! -e "${OUTDIR}/arch/${ARCH}/boot/image" ]; then
+	echo "Kernal build failure: Image not found in build location."
+	echo "Check for artifacts at: ${OUTDIR}/arch/${ARCH}/boot/image"
+	exit 1
+    fi
+    # We have a valid image now lets move it to the ${OUTDIR}/image like required
+    mv "${OUTDIR}/arch/${ARCH}/boot/image" "${OUTDIR}/image"
+    # remove un-needed build artifacts (deletes from arch/ folder down)
+    rm -rf "${OUTDIR}/arch"
 fi
 
 echo "Adding the Image in outdir"
