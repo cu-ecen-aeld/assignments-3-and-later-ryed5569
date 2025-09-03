@@ -24,13 +24,17 @@ if [ ! -d "$filesdir" ]; then
   exit 1
 fi
 
+# based on assignment issues and some research decided to adjust these calls a bit
 # Count files recursively (regular files only)
-X=$(find "$filesdir" -type f | wc -l)
+# X=$(find "$filesdir" -type f | wc -l)
+# using a slightly different pattern for var names
+numfiles=$(find "$filesdir" -type f | wc -l)
 
 # Requirement 4)
 # Count matching lines across all files
 #    -R: recursive, -F: fixed string (not regex)
 #    Ignore binary matches; suppress errors for unreadable files.
-Y=$(grep -R -F --binary-files=without-match "$searchstr" "$filesdir" 2>/dev/null | wc -l)
+# Y=$(grep -R -F --binary-files=without-match "$searchstr" "$filesdir" 2>/dev/null | wc -l)
+numlines=$(grep -R "$searchstr" "$filesdir" 2>/dev/null | wc -l)
 
-echo "The number of files are ${X} and the number of matching lines are ${Y}"
+echo "The number of files are $numfiles and the number of matching lines are $numlines"
