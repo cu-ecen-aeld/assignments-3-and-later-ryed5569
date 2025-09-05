@@ -8,7 +8,13 @@ set -u
 NUMFILES=10
 WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
-username=$(cat conf/username.txt)
+#username=$(cat conf/username.txt)
+# per assignment 4p2 instructions we need to be able to call from PATH
+# which means all files and vars needed must be within these folders per assignment
+# instructions so lets make sure we pull our username and other conf stuff from there
+username=$(cat ../../etc/finder-app/conf/username.txt)
+# change working directory to script location this sets us up to run assignment 4p2
+cd `dirname $0`
 
 if [ $# -lt 3 ]
 then
@@ -32,7 +38,9 @@ echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
 rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
-assignment=`cat ../conf/assignment.txt`
+#assignment=`cat ../conf/assignment.txt`
+# again we need to adjust for us to run from PATH as part of assignment 4 part 2
+assignment='cat ../../etc/finder-app/conf/username.txt'
 
 if [ $assignment != 'assignment1' ]
 then
@@ -58,6 +66,9 @@ for i in $(seq 1 "$NUMFILES"); do
 done
 
 OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
+# Assignment 4 Part 2 requirements are to write these results to a file
+# located at /tmp/assignment4-result.txt
+echo $OUTPUTSTRING > /tmp/assignment4-result.txt
 
 # remove temporary directories
 rm -rf /tmp/aeld-data
