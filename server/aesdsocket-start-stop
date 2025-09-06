@@ -1,0 +1,52 @@
+#!/bin/sh
+# /etc/init.d/S99aesdsocket compatible script using start-stop-daemon
+# Starts aesdsocket in daemon mode (-d) and stops it with SIGTERM.
+
+NAME="aesdsocket"
+DAEMON="/usr/bin/aesdsocket"
+PIDFILE="/var/run/${NAME}.pid"
+OPTS="-d"
+
+start() {
+    echo "Starting $NAME..."
+    start-stop-daemon -S -b -m -p "$PIDFILE" --exec "$DAEMON" -- $OPTS
+    RET=$?
+    [ $RET -eq 0 ] && echo "OK" || echo "FAILED ($RET)"
+    return $RET
+}
+
+stop() {
+    echo "Stopping $NAME..."
+    # send SIGTERM to allow cleanup of /var/tmp/aesdsocketdata
+    start-stop-daemon -K -p "$PIDFILE" -s TERM
+    RET=$?
+    # remove stale pidfile if needed
+    [ -f "$PIDFILE" ] && rm -f "$PIDFILE"
+    [ $RET -eq 0 ] && echo "OK" || echo "FAILED ($RET)"
+    return $RET
+}
+
+restart() {
+    stop
+    start
+}
+
+status() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "$NAME is running (pid $(cat "$PIDFILE"))."
+        exit 0
+    else
+        echo "$NAME is not running."
+        exit 3
+    fi
+}
+
+case "$1" in
+    start)   start   ;;
+    stop)    stop    ;;
+    restart) restart ;;
+    status)  status  ;;
+    *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
+
+exit 0
