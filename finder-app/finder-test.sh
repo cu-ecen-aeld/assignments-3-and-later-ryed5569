@@ -13,8 +13,8 @@ WRITEDIR=/tmp/aeld-data
 # which means all files and vars needed must be within these folders per assignment
 # instructions so lets make sure we pull our username and other conf stuff from there
 CONF_DIR="/etc/finder-app/conf"
-username="$CONF_DIR/username.txt)
-assignment="$CONF_DIR/assignment.txt"
+username=$(cat "$CONF_DIR/username.txt")
+assignment=$(cat "$CONF_DIR/assignment.txt")
 # change working directory to script location this sets us up to run assignment 4p2
 cd `dirname $0`
 
