@@ -1,0 +1,57 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          aesd-chardriver
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Load/unload AESD char driver and create /dev/aesdchar
+### END INIT INFO
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+NAME="aesd-chardriver"
+LOAD=/usr/sbin/aesdchar-load
+UNLOAD=/usr/sbin/aesdchar-unload
+MOD=aesdchar
+
+case "$1" in
+  start)
+    if ! lsmod | grep -q "^${MOD}\b"; then
+      if [ -x "${LOAD}" ]; then
+        "${LOAD}" || exit 1
+      else
+        echo "${LOAD} not found or not executable" >&2
+        exit 1
+      fi
+    fi
+    ;;
+  stop)
+    if lsmod | grep -q "^${MOD}\b"; then
+      if [ -x "${UNLOAD}" ]; then
+        "${UNLOAD}" || exit 1
+      else
+        echo "${UNLOAD} not found or not executable" >&2
+        exit 1
+      fi
+    fi
+    ;;
+  restart|force-reload)
+    $0 stop
+    $0 start
+    ;;
+  status)
+    if lsmod | grep -q "^${MOD}\b"; then
+      echo "${MOD} loaded"
+      exit 0
+    else
+      echo "${MOD} not loaded"
+      exit 3
+    fi
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|force-reload|status}"
+    exit 2
+    ;;
+esac
+
+exit 0
