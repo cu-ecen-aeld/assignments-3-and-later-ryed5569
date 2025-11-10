@@ -28,7 +28,13 @@ struct aesd_dev
     /**
      * TODO: Add structure(s) and locks needed to complete assignment requirements
      */
-    struct cdev cdev;     /* Char device structure      */
+
+     struct mutex lock;                /* Serialize reads/writes */
+     struct aesd_circular_buffer circ; /* 10-entry command history */
+     size_t total_size;                /* Sum of circ entry sizes */
+     char *partial;                    /* Accumulator for no-'\n' writes */
+     size_t partial_len;               /* Bytes currently in partial */
+     struct cdev cdev;     /* Char device structure      */
 };
 
 

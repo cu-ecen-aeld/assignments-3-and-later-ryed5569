@@ -39,9 +39,23 @@
 #define RECV_CHUNK 4096
 #define SEND_CHUNK 4096
 
+#ifndef USE_AESD_CHAR_DEVICE
+#define USE_AESD_CHAR_DEVICE 1
+#endif
+
+#if USE_AESD_CHAR_DEVICE
+#define AESD_PATH "/dev/aesdchar"
+#else
+#define AESD_PATH "/var/tmp/aesdsocketdata"
+#endif
+
 static volatile sig_atomic_t g_exit_requested = 0;
 static int g_listen_fd = -1;
+
+#if !USE_AESD_CHAR_DEVICE
 static int g_data_fd = -1;
+static pthread_t g_time_tid;
+#endif
 
 static pthread_mutex_t g_file_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_list_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -54,8 +68,6 @@ struct client_thread {
     SLIST_ENTRY(client_thread) entries;
 };
 static SLIST_HEAD(thread_head, client_thread) g_thread_head = SLIST_HEAD_INITIALIZER(g_thread_head);
-
-static pthread_t g_time_tid;
 
 // ---------- utility ----------
 
@@ -75,6 +87,7 @@ static void signal_handler(int signo)
     g_exit_requested = 1;
 }
 
+#if !USE_AESD_CHAR_DEVICE
 static int open_data_file(void)
 {
     // O_APPEND ensures kernel appends are atomic among writers.
@@ -116,6 +129,7 @@ static int append_to_file_locked(int file_fd, const char *data, size_t len)
     }
     return 0;
 }
+#endif
 
 static int make_listen_socket(void)
 {
@@ -190,7 +204,7 @@ static void daemonize(void)
 }
 
 // ---------- timestamp thread ----------
-
+#if !USE_AESD_CHAR_DEVICE
 static void *timestamp_thread(void *arg)
 {
     (void)arg;
@@ -222,6 +236,7 @@ static void *timestamp_thread(void *arg)
     }
     return NULL;
 }
+#endif
 
 // ---------- client thread ----------
 
@@ -246,6 +261,10 @@ static void *handle_client_thread(void *arg)
     size_t line_cap = 0;
     size_t line_len = 0;
     char recvbuf[RECV_CHUNK];
+
+    #if USE_AESD_CHAR_DEVICE
+        int data_fd = -1;
+    #endif
 
     while (!g_exit_requested) {
         ssize_t n = recv(cfd, recvbuf, sizeof(recvbuf), 0);
@@ -278,7 +297,33 @@ static void *handle_client_thread(void *arg)
             line_buf[line_len++] = recvbuf[i];
 
             if (recvbuf[i] == '\n') {
-                // Packet complete in line_buf[0..line_len-1]
+            #if USE_AESD_CHAR_DEVICE
+                if (data_fd < 0) {
+                    data_fd = open(AESD_PATH, O_RDWR);
+                    if (data_fd < 0) { fatal_log("open(%s) failed: %s", AESD_PATH, strerror(errno)); goto out; }
+                }
+                /* write the line */
+                size_t written = 0;
+                while (written < line_len) {
+                    ssize_t w = write(data_fd, line_buf + written, line_len - written);
+                    if (w < 0) { if (errno == EINTR) continue; goto out; }
+                    written += (size_t)w;
+                }
+                /* read back entire device */
+                if (lseek(data_fd, 0, SEEK_SET) == (off_t)-1) goto out;
+
+                char buf[SEND_CHUNK];
+                ssize_t r;
+                while ((r = read(data_fd, buf, sizeof(buf))) > 0) {
+                    ssize_t off = 0;
+                    while (off < r) {
+                        ssize_t s = send(cfd, buf + off, (size_t)(r - off), 0);
+                        if (s < 0) { if (errno == EINTR) continue; goto out; }
+                        off += s;
+                    }
+                }
+                line_len = 0;
+            #else
                 pthread_mutex_lock(&g_file_mutex);
                 if (append_to_file_locked(g_data_fd, line_buf, line_len) != 0) {
                     fatal_log("write failed: %s", strerror(errno));
@@ -291,11 +336,15 @@ static void *handle_client_thread(void *arg)
                 }
                 pthread_mutex_unlock(&g_file_mutex);
                 line_len = 0;
+            #endif
             }
         }
     }
 
 out:
+#if USE_AESD_CHAR_DEVICE
+    if (data_fd >= 0) close(data_fd);
+#endif
     free(line_buf);
     syslog(LOG_INFO, "Closed connection from %s", client_ip);
     self->done = true;
@@ -324,6 +373,7 @@ int main(int argc, char *argv[])
 
     if (daemon_mode) daemonize();
 
+    #if !USE_AESD_CHAR_DEVICE
     g_data_fd = open_data_file();
     if (g_data_fd < 0) {
         fatal_log("open data file failed: %s", strerror(errno));
@@ -348,6 +398,7 @@ int main(int argc, char *argv[])
         closelog();
         return EXIT_FAILURE;
     }
+    #endif
 
     // Accept loop
     while (!g_exit_requested) {
@@ -443,6 +494,7 @@ int main(int argc, char *argv[])
     SLIST_INIT(&g_thread_head);
     pthread_mutex_unlock(&g_list_mutex);
 
+    #if !USE_AESD_CHAR_DEVICE
     // Stop timestamp thread
     pthread_join(g_time_tid, NULL);
 
@@ -454,6 +506,7 @@ int main(int argc, char *argv[])
     if (unlink(DATAFILE) != 0 && errno != ENOENT) {
         fatal_log("unlink(%s) failed: %s", DATAFILE, strerror(errno));
     }
+    #endif
 
     closelog();
     return EXIT_SUCCESS;
