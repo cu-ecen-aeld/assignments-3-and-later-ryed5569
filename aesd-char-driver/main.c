@@ -291,7 +291,7 @@ void aesd_cleanup_module(void)
     cdev_del(&aesd_device.cdev);
 
     AESD_CIRCULAR_BUFFER_FOREACH(e, &aesd_device.circ, idx) {
-        if (e.buffptr)
+        if (e->buffptr)
             kfree((void *)e->buffptr);
     }
 
