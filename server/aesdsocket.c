@@ -298,30 +298,37 @@ static void *handle_client_thread(void *arg)
 
             if (recvbuf[i] == '\n') {
             #if USE_AESD_CHAR_DEVICE
-                if (data_fd < 0) {
-                    data_fd = open(AESD_PATH, O_RDWR);
-                    if (data_fd < 0) { fatal_log("open(%s) failed: %s", AESD_PATH, strerror(errno)); goto out; }
+                /* write the completed line to the device */
+                int wfd = open(AESD_PATH, O_WRONLY | O_CLOEXEC);
+                if (wfd < 0) {
+                    fatal_log("open(%s,O_WRONLY) failed: %s", AESD_PATH, strerror(errno));
+                    goto out;
                 }
-                /* write the line */
-                size_t written = 0;
-                while (written < line_len) {
-                    ssize_t w = write(data_fd, line_buf + written, line_len - written);
-                    if (w < 0) { if (errno == EINTR) continue; goto out; }
+                for (size_t written = 0; written < line_len; ) {
+                    ssize_t w = write(wfd, line_buf + written, line_len - written);
+                    if (w < 0) { if (errno == EINTR) continue; close(wfd); goto out; }
                     written += (size_t)w;
                 }
-                /* read back entire device */
-                if (lseek(data_fd, 0, SEEK_SET) == (off_t)-1) goto out;
+                close(wfd);
 
+                /* reopen for readback starting at offset 0 */
+                int rfd = open(AESD_PATH, O_RDONLY | O_CLOEXEC);
+                if (rfd < 0) {
+                    fatal_log("open(%s,O_RDONLY) failed: %s", AESD_PATH, strerror(errno));
+                    goto out;
+                }
                 char buf[SEND_CHUNK];
-                ssize_t r;
-                while ((r = read(data_fd, buf, sizeof(buf))) > 0) {
-                    ssize_t off = 0;
-                    while (off < r) {
+                for (;;) {
+                    ssize_t r = read(rfd, buf, sizeof(buf));
+                    if (r < 0) { if (errno == EINTR) continue; close(rfd); goto out; }
+                    if (r == 0) break; /* EOF */
+                    for (ssize_t off = 0; off < r; ) {
                         ssize_t s = send(cfd, buf + off, (size_t)(r - off), 0);
-                        if (s < 0) { if (errno == EINTR) continue; goto out; }
+                        if (s < 0) { if (errno == EINTR) continue; close(rfd); goto out; }
                         off += s;
                     }
                 }
+                close(rfd);
                 line_len = 0;
             #else
                 pthread_mutex_lock(&g_file_mutex);
