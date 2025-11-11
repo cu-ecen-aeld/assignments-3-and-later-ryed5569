@@ -286,7 +286,7 @@ void aesd_cleanup_module(void)
 {
     dev_t devno = MKDEV(aesd_major, aesd_minor);
     uint8_t idx;
-    struct aesd_buffer_entry e;
+    struct aesd_buffer_entry *e;
 
     cdev_del(&aesd_device.cdev);
 

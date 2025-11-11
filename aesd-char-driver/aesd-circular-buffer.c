@@ -44,7 +44,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
         // Empty if indices equal and not full
         if (buffer->in_offs == buffer->out_offs) return NULL;
         int diff;
-        int diff = (int)buffer->in_offs - (int)buffer->out_offs;
+        diff = (int)buffer->in_offs - (int)buffer->out_offs;
         if (diff < 0) diff += (int)N;   // avoid modulo
         count = (size_t)diff;
     }
