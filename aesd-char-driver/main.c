@@ -68,28 +68,33 @@ static int partial_append(struct aesd_dev *dev, const char *src, size_t src_len)
  */
 static int finalize_command(struct aesd_dev *dev)
 {
-    const struct aesd_buffer_entry *old;
     struct aesd_buffer_entry out;
-
-    memset(&out, 0, sizeof(out));
+    struct aesd_buffer_entry old = {0};   /* copy of the soon-to-be-overwritten one */
 
     if (!dev->partial || dev->partial_len == 0)
         return 0;
 
+    memset(&out, 0, sizeof(out));
+
+    /* Take ownership of dev->partial as the command buffer */
     out.buffptr = dev->partial;
     out.size    = dev->partial_len;
-
     dev->partial = NULL;
     dev->partial_len = 0;
 
-    /* Push into ring; get pointer to the overwritten entry (if any) */
-    old = aesd_circular_buffer_add_entry(&dev->circ, &out);
+    /* If full, the entry at in_offs will be overwritten */
+    if (dev->circ.full) {
+        struct aesd_buffer_entry *slot = &dev->circ.entry[dev->circ.in_offs];
+        old = *slot;  /* make a copy so we can free after add */
+    }
 
-    /* Account for sizes */
+    aesd_circular_buffer_add_entry(&dev->circ, &out);
+
     dev->total_size += out.size;
-    if (old && old->buffptr) {
-        dev->total_size -= old->size;
-        kfree((void *)old->buffptr);
+
+    if (old.buffptr) {
+        dev->total_size -= old.size;
+        kfree((void *)old.buffptr);
     }
     return 0;
 }
