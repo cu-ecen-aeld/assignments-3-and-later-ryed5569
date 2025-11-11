@@ -292,7 +292,7 @@ void aesd_cleanup_module(void)
 
     AESD_CIRCULAR_BUFFER_FOREACH(e, &aesd_device.circ, idx) {
         if (e.buffptr)
-            kfree((void *)e.buffptr);
+            kfree((void *)e->buffptr);
     }
 
     kfree(aesd_device.partial);
