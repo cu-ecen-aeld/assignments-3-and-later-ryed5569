@@ -17,6 +17,10 @@
 #include <linux/types.h>
 #include <linux/cdev.h>
 #include <linux/fs.h> // file_operations
+#include <linux/slab.h>      // kmalloc, kfree
+#include <linux/uaccess.h>   // copy_to_user, copy_from_user
+#include <linux/string.h>    // memcpy, memset
+#include <linux/mutex.h>
 #include "aesdchar.h"
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
@@ -64,28 +68,28 @@ static int partial_append(struct aesd_dev *dev, const char *src, size_t src_len)
  */
 static int finalize_command(struct aesd_dev *dev)
 {
-    struct aesd_buffer_entry out, old;
+    const struct aesd_buffer_entry *old;
+    struct aesd_buffer_entry out;
+
     memset(&out, 0, sizeof(out));
-    memset(&old, 0, sizeof(old));
 
     if (!dev->partial || dev->partial_len == 0)
         return 0;
 
-    /* Take ownership of dev->partial as the command buffer */
     out.buffptr = dev->partial;
     out.size    = dev->partial_len;
 
     dev->partial = NULL;
     dev->partial_len = 0;
 
-    /* Push into ring; pop returns the overwritten entry (if any) */
+    /* Push into ring; get pointer to the overwritten entry (if any) */
     old = aesd_circular_buffer_add_entry(&dev->circ, &out);
 
     /* Account for sizes */
     dev->total_size += out.size;
-    if (old.buffptr) {
-        dev->total_size -= old.size;
-        kfree((void *)old.buffptr);
+    if (old && old->buffptr) {
+        dev->total_size -= old->size;
+        kfree((void *)old->buffptr);
     }
     return 0;
 }
