@@ -266,123 +266,82 @@ static void *handle_client_thread(void *arg)
     size_t line_len = 0;
     char recvbuf[RECV_CHUNK];
 
-    #if USE_AESD_CHAR_DEVICE
-        int data_fd = -1;
-    #endif
+#if USE_AESD_CHAR_DEVICE
+    int devfd = open(AESD_PATH, O_RDWR | O_CLOEXEC);
+    if (devfd < 0) {
+        fatal_log("open(%s,O_RDWR) failed: %s", AESD_PATH, strerror(errno));
+        goto out;
+    }
+#endif
 
     while (!g_exit_requested) {
         ssize_t n = recv(cfd, recvbuf, sizeof(recvbuf), 0);
-        if (n < 0) {
-            if (errno == EINTR) continue;
-            break;
-        }
-        if (n == 0) {
-            // Client closed
-            break;
-        }
+        if (n < 0) { if (errno == EINTR) continue; break; }
+        if (n == 0) break;
 
         for (ssize_t i = 0; i < n; i++) {
-            // Grow buffer if required
             if (line_len + 1 > line_cap) {
-                size_t new_cap = (line_cap == 0) ? 1024 : (line_cap * 2);
+                size_t new_cap = line_cap ? line_cap * 2 : 1024;
                 char *tmp = realloc(line_buf, new_cap);
-                if (!tmp) {
-                    fatal_log("malloc failed; dropping packet fragment");
-                    free(line_buf);
-                    line_buf = NULL;
-                    line_cap = 0;
-                    line_len = 0;
-                    // Continue scanning until newline resets us
-                    continue;
-                }
-                line_buf = tmp;
-                line_cap = new_cap;
+                if (!tmp) { fatal_log("malloc failed; dropping fragment"); free(line_buf); line_buf=NULL; line_cap=0; line_len=0; continue; }
+                line_buf = tmp; line_cap = new_cap;
             }
             line_buf[line_len++] = recvbuf[i];
 
             if (recvbuf[i] == '\n') {
-            #if USE_AESD_CHAR_DEVICE
-                int devfd = open(AESD_PATH, O_RDWR | O_CLOEXEC);
-                if (devfd < 0) {
-                    fatal_log("open(%s,O_RDWR) failed: %s", AESD_PATH, strerror(errno));
-                    goto out;
+#if USE_AESD_CHAR_DEVICE
+                // NUL-terminate a copy for sscanf
+                char *z = malloc(line_len + 1);
+                if (!z) { fatal_log("malloc failed"); goto dev_out; }
+                memcpy(z, line_buf, line_len);
+                z[line_len] = '\0';
+
+                unsigned int X, Y;
+                bool is_cmd = false;
+                if (sscanf(z, "AESDCHAR_IOCSEEKTO:%u,%u", &X, &Y) == 2) {
+                    struct aesd_seekto st = { .write_cmd = X, .write_cmd_offset = Y };
+                    if (ioctl(devfd, AESDCHAR_IOCSEEKTO, &st) == -1) {
+                        fatal_log("ioctl AESDCHAR_IOCSEEKTO failed: %s", strerror(errno));
+                        // Still treat as is_cmd=true per spec (do not write the string)
+                    }
+                    is_cmd = true;           // do NOT write this string to the device
+                } else {
+                    // Normal line: write it to the device
+                    size_t off = 0;
+                    while (off < line_len) {
+                        ssize_t w = write(devfd, line_buf + off, line_len - off);
+                        if (w < 0) { if (errno == EINTR) continue; free(z); goto dev_out; }
+                        off += (size_t)w;
+                    }
+                    // Reset to beginning so we send the full device contents back
+                    if (lseek(devfd, 0, SEEK_SET) == (off_t)-1) {
+                        fatal_log("lseek to start failed: %s", strerror(errno));
+                        free(z);
+                        goto dev_out;
+                    }
                 }
 
-                while (!g_exit_requested) {
-                    ssize_t n = recv(cfd, recvbuf, sizeof(recvbuf), 0);
-                    if (n < 0) {
+                // Read back and send EVERYTHING until EOF
+                for (;;) {
+                    char buf[SEND_CHUNK];
+                    ssize_t r = read(devfd, buf, sizeof buf);
+                    if (r < 0) {
                         if (errno == EINTR) continue;
-                        break;
+                        free(z);
+                        goto dev_out;
                     }
-                    if (n == 0) break; // client closed
+                    if (r == 0) break; // EOF
 
-                    for (ssize_t i = 0; i < n; i++) {
-                        // ensure capacity
-                        if (line_len + 1 > line_cap) {
-                            size_t new_cap = (line_cap == 0) ? 1024 : (line_cap * 2);
-                            char *tmp = realloc(line_buf, new_cap);
-                            if (!tmp) {
-                                fatal_log("malloc failed; dropping packet fragment");
-                                free(line_buf); line_buf = NULL; line_cap = 0; line_len = 0;
-                                continue;
-                            }
-                            line_buf = tmp; line_cap = new_cap;
-                        }
-                        line_buf[line_len++] = recvbuf[i];
-
-                        if (recvbuf[i] == '\n') {
-                            /* NUL-terminate a copy for parsing; do not include NUL in writes */
-                            char *z = malloc(line_len + 1);
-                            if (!z) { fatal_log("malloc failed"); goto dev_out; }
-                            memcpy(z, line_buf, line_len);
-                            z[line_len] = '\0';
-
-                            /* Try AESDCHAR_IOCSEEKTO:X,Y */
-                            unsigned int X, Y;
-                            bool is_cmd = false;
-                            if (sscanf(z, "AESDCHAR_IOCSEEKTO:%u,%u", &X, &Y) == 2) {
-                                struct aesd_seekto st = { .write_cmd = X, .write_cmd_offset = Y };
-                                if (ioctl(devfd, AESDCHAR_IOCSEEKTO, &st) == -1) {
-                                    fatal_log("ioctl AESDCHAR_IOCSEEKTO failed: %s", strerror(errno));
-                                    // fall through to normal write? Spec says do NOT write the command. We skip write.
-                                }
-                                is_cmd = true;
-                            }
-
-                            if (!is_cmd) {
-                                // normal line: write to device
-                                size_t off = 0;
-                                while (off < line_len) {
-                                    ssize_t w = write(devfd, line_buf + off, line_len - off);
-                                    if (w < 0) { if (errno == EINTR) continue; free(z); goto dev_out; }
-                                    off += (size_t)w;
-                                }
-                            }
-
-                            // read back starting from current f_pos (set by either write or ioctl)
-                            for (;;) {
-                                char buf[SEND_CHUNK];
-                                ssize_t r = read(devfd, buf, sizeof buf);
-                                if (r < 0) { if (errno == EINTR) continue; free(z); goto dev_out; }
-                                if (r == 0) break;
-                                ssize_t off = 0;
-                                while (off < r) {
-                                    ssize_t s = send(cfd, buf + off, (size_t)(r - off), 0);
-                                    if (s < 0) { if (errno == EINTR) continue; free(z); goto dev_out; }
-                                    off += s;
-                                }
-                                if (memchr(buf, '\n', r)) break; // mirror A8 behavior
-                            }
-
-                            free(z);
-                            line_len = 0; // reset aggregator for next line
-                        }
+                    for (ssize_t off = 0; off < r; ) {
+                        ssize_t s = send(cfd, buf + off, (size_t)(r - off), 0);
+                        if (s < 0) { if (errno == EINTR) continue; free(z); goto dev_out; }
+                        off += s;
                     }
                 }
 
-            dev_out:
-                if (devfd >= 0) close(devfd);
-            #else
+                free(z);
+                line_len = 0; // next line
+#else
                 pthread_mutex_lock(&g_file_mutex);
                 if (append_to_file_locked(g_data_fd, line_buf, line_len) != 0) {
                     fatal_log("write failed: %s", strerror(errno));
@@ -395,14 +354,14 @@ static void *handle_client_thread(void *arg)
                 }
                 pthread_mutex_unlock(&g_file_mutex);
                 line_len = 0;
-            #endif
+#endif
             }
         }
     }
 
-out:
 #if USE_AESD_CHAR_DEVICE
-    if (data_fd >= 0) close(data_fd);
+dev_out:
+    if (devfd >= 0) close(devfd);
 #endif
     free(line_buf);
     syslog(LOG_INFO, "Closed connection from %s", client_ip);
