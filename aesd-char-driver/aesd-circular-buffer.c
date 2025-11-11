@@ -32,6 +32,8 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     /**
     * TODO: implement per description
     */
+    size_t i;                 
+    size_t idx;
     const size_t N = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
 
     // Determine how many valid entries are present
@@ -41,14 +43,15 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     } else {
         // Empty if indices equal and not full
         if (buffer->in_offs == buffer->out_offs) return NULL;
+        int diff;
         int diff = (int)buffer->in_offs - (int)buffer->out_offs;
         if (diff < 0) diff += (int)N;   // avoid modulo
         count = (size_t)diff;
     }
 
     // Walk from oldest (out_offs) forward, accumulating sizes
-    size_t idx = buffer->out_offs;
-    for (size_t i = 0; i < count; ++i) {
+    idx = buffer->out_offs;
+    for (i = 0; i < count; ++i) {
         const struct aesd_buffer_entry *e = &buffer->entry[idx];
 
         if (e->size > 0) {
