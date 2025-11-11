@@ -10,7 +10,7 @@ else
 CC := $(CROSS_COMPILE)gcc
 endif
 
-CFLAGS ?= -Wall -Wextra -O2 -g -DUSE_AESD_CHAR_DEVICE=1
+CFLAGS ?= -Wall -Wextra -O2 -g -DUSE_AESD_CHAR_DEVICE=1 -I../aesd-char-driver
 LDFLAGS ?=
 TARGET := aesdsocket
 SRCS := aesdsocket.c
