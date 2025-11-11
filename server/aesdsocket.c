@@ -363,6 +363,7 @@ static void *handle_client_thread(void *arg)
 dev_out:
     if (devfd >= 0) close(devfd);
 #endif
+out:
     free(line_buf);
     syslog(LOG_INFO, "Closed connection from %s", client_ip);
     self->done = true;
