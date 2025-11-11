@@ -1,20 +1,22 @@
 # Cross-compile friendly Makefile for aesdsocket
-# Usage examples:
-#   make                      # native build
-#   make CROSS_COMPILE=aarch64-none-linux-gnu-  # cross build
-#   make clean
 
-ifeq ($(CROSS_COMPILE),)
-CC ?= gcc
-else
-CC := $(CROSS_COMPILE)gcc
-endif
+# Toolchain
+CC ?= $(CROSS_COMPILE)gcc
 
-CFLAGS ?= -Wall -Wextra -O2 -g -DUSE_AESD_CHAR_DEVICE=1 -I../aesd-char-driver
-LDFLAGS ?=
+# Put include paths and -D defines in CPPFLAGS; append so OE flags are kept
+CPPFLAGS += -DUSE_AESD_CHAR_DEVICE=1 \
+            -I$(CURDIR)/aesd-char-driver \
+            -I$(CURDIR)/../aesd-char-driver
+
+# Add warnings/opts to CFLAGS; append so OE flags are kept
+CFLAGS   += -Wall -Wextra -O2 -g
+
+# Keep LDFLAGS for OE; put libs in LDLIBS
+LDLIBS   += -pthread
+
 TARGET := aesdsocket
-SRCS := aesdsocket.c
-OBJS := $(SRCS:.c=.o)
+SRCS   := aesdsocket.c
+OBJS   := $(SRCS:.c=.o)
 
 .PHONY: all default clean
 
@@ -22,10 +24,10 @@ all: $(TARGET)
 default: all
 
 $(TARGET): $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
+	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDLIBS) -o $@
 
 %.o: %.c
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(OBJS) $(TARGET)
